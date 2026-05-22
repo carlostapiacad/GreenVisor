@@ -1,0 +1,17 @@
+build/
+build-release/
+dist/
+.vscode/
+
+*.user
+*.suo
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+
+__pycache__/
+*.pyc
