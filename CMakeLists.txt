@@ -44,13 +44,36 @@ set(VTK_MODULES
 
 add_executable(GreenVisor
   src/main.cpp
+  src/features/block_model/engine/BlockModelFieldUtils.cpp
+  src/features/pit_optimization/engine/EconomicFormula.cpp
+  src/features/pit_optimization/engine/MineFlowPitOptimizer.cpp
+  src/features/block_model/dialogs/BlockModelDialogs.cpp
+  src/features/general/dialogs/LayerDialogs.cpp
+  src/features/pit_optimization/dialogs/EconomicVariablesDialog.cpp
+  src/features/pit_optimization/dialogs/PitOptimizationReportDialog.cpp
+  src/features/pit_optimization/widgets/EconomicTableWidgets.cpp
+  src/gui/AppStyle.cpp
+  src/gui/GuiUtils.cpp
   src/gui/MainWindow.cpp
   src/gui/LayerModel.cpp
   src/gui/StartScreenDialog.cpp
   src/io/DxfLoader.cpp
   third_party/mineflow/mineflow.cpp
   src/GreenVisor.rc
+  include/features/block_model/engine/BlockModelFieldUtils.h
+  include/features/pit_optimization/models/EconomicModelDefinition.h
+  include/features/pit_optimization/engine/EconomicFormula.h
+  include/features/pit_optimization/engine/MineFlowPitOptimizer.h
+  include/features/block_model/dialogs/BlockModelDialogs.h
+  include/features/general/dialogs/LayerDialogs.h
+  include/features/pit_optimization/dialogs/EconomicModelDialog.h
+  include/features/pit_optimization/dialogs/EconomicVariablesDialog.h
+  include/features/pit_optimization/dialogs/OpenPitOptimizationDialog.h
+  include/features/pit_optimization/dialogs/PitOptimizationReportDialog.h
+  include/features/pit_optimization/widgets/EconomicTableWidgets.h
   include/gui/MainWindow.h
+  include/gui/AppStyle.h
+  include/gui/GuiUtils.h
   include/gui/LayerModel.h
   include/gui/StartScreenDialog.h
   include/io/DxfLoader.h

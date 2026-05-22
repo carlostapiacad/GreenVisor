@@ -3,12 +3,11 @@
 #include <QDir>
 #include <QFile>
 #include <QIcon>
-#include <QPalette>
-#include <QStyleFactory>
 #include <QSurfaceFormat>
 
 #include <QVTKOpenGLNativeWidget.h>
 
+#include "gui/AppStyle.h"
 #include "gui/MainWindow.h"
 #include "gui/StartScreenDialog.h"
 
@@ -18,11 +17,22 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 
     QApplication app(argc, argv);
-    QApplication::setStyle(QStyleFactory::create("Fusion"));
+    AppStyle::ApplyApplicationStyle(app);
 
     QIcon appIcon;
     const QString base = QCoreApplication::applicationDirPath();
+    const QStringList logoCandidates = {
+        QDir(base).filePath("../assets/Icons/Logo.png"),
+        QDir(base).filePath("../../assets/Icons/Logo.png"),
+        QDir("assets/Icons").filePath("Logo.png")};
+    for (const QString &path : logoCandidates) {
+        if (QFile::exists(path)) {
+            appIcon.addFile(path);
+            break;
+        }
+    }
     const QStringList iconNames = {
+        "GreenVisor.ico",
         "icon16x16.ico",
         "icon32x32.ico",
         "icon48x48.ico",
@@ -42,18 +52,6 @@ int main(int argc, char *argv[])
     if (!appIcon.isNull()) {
         app.setWindowIcon(appIcon);
     }
-
-    QPalette palette;
-    palette.setColor(QPalette::Window, QColor(35, 35, 35));
-    palette.setColor(QPalette::WindowText, QColor(220, 220, 220));
-    palette.setColor(QPalette::Base, QColor(25, 25, 25));
-    palette.setColor(QPalette::AlternateBase, QColor(30, 30, 30));
-    palette.setColor(QPalette::Text, QColor(220, 220, 220));
-    palette.setColor(QPalette::Button, QColor(45, 45, 45));
-    palette.setColor(QPalette::ButtonText, QColor(220, 220, 220));
-    palette.setColor(QPalette::Highlight, QColor(70, 130, 130));
-    palette.setColor(QPalette::HighlightedText, QColor(240, 240, 240));
-    app.setPalette(palette);
 
     StartScreenDialog startDialog;
     if (startDialog.exec() != QDialog::Accepted) {

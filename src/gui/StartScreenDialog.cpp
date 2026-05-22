@@ -6,11 +6,32 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPixmap>
 #include <QPushButton>
-#include <QSpacerItem>
+#include <QSizePolicy>
 #include <QVBoxLayout>
+
+namespace
+{
+QString FindAssetPath(const QString &relativePath)
+{
+    const QString base = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        QDir(base).filePath("../" + relativePath),
+        QDir(base).filePath("../../" + relativePath),
+        QDir::current().filePath(relativePath),
+        relativePath};
+    for (const QString &candidate : candidates) {
+        if (QFileInfo::exists(candidate)) {
+            return QFileInfo(candidate).absoluteFilePath();
+        }
+    }
+    return {};
+}
+}
 
 StartScreenDialog::StartScreenDialog(QWidget *parent)
     : QDialog(parent)
@@ -18,108 +39,170 @@ StartScreenDialog::StartScreenDialog(QWidget *parent)
     setObjectName("startScreen");
     setWindowTitle("GreenVisor");
     setModal(true);
-    resize(960, 540);
+    resize(1120, 760);
+    setMinimumSize(920, 620);
     SetupBackground();
 
     QVBoxLayout *rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(32, 32, 32, 32);
+    rootLayout->setContentsMargins(42, 38, 42, 34);
     rootLayout->setSpacing(0);
 
-    QWidget *panel = new QWidget(this);
-    panel->setFixedWidth(420);
-    panel->setStyleSheet(
-        "background-color: rgba(255, 255, 255, 230);"
-        "border: 1px solid #cfd7e3;"
-        "border-radius: 6px;");
+    const QString logoPath = FindAssetPath("assets/Icons/Logo.png");
+    if (!logoPath.isEmpty()) {
+        setWindowIcon(QIcon(logoPath));
+    }
 
-    QVBoxLayout *panelLayout = new QVBoxLayout(panel);
-    panelLayout->setContentsMargins(20, 20, 20, 20);
-    panelLayout->setSpacing(12);
+    QHBoxLayout *brandRow = new QHBoxLayout();
+    brandRow->setContentsMargins(0, 0, 0, 0);
+    brandRow->setSpacing(22);
 
-    QLabel *title = new QLabel("GreenVisor", panel);
-    QFont titleFont("DengXian", 28, QFont::Bold);
+    QLabel *logo = new QLabel(this);
+    logo->setObjectName("startupLogo");
+    logo->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    if (!logoPath.isEmpty()) {
+        QPixmap logoPixmap(logoPath);
+        logo->setPixmap(logoPixmap.scaled(QSize(106, 106), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    } else {
+        logo->setFixedSize(86, 86);
+    }
+    brandRow->addWidget(logo, 0, Qt::AlignVCenter);
+
+    QWidget *brandDivider = new QWidget(this);
+    brandDivider->setObjectName("startupBrandDivider");
+    brandDivider->setFixedWidth(1);
+    brandDivider->setMinimumHeight(70);
+    brandRow->addWidget(brandDivider, 0, Qt::AlignVCenter);
+
+    QVBoxLayout *brandText = new QVBoxLayout();
+    brandText->setContentsMargins(0, 0, 0, 0);
+    brandText->setSpacing(6);
+    QLabel *brandName = new QLabel("GreenVisor", this);
+    brandName->setObjectName("startupBrandName");
+    QFont brandFont("Segoe UI", 34, QFont::Bold);
+    brandName->setFont(brandFont);
+    QLabel *brandSubtitle = new QLabel("Apiri OpenSource", this);
+    brandSubtitle->setObjectName("startupBrandSubtitle");
+    QFont brandSubtitleFont("Segoe UI", 14, QFont::Normal);
+    brandSubtitle->setFont(brandSubtitleFont);
+    brandText->addWidget(brandName);
+    brandText->addWidget(brandSubtitle);
+    brandRow->addLayout(brandText);
+    brandRow->addStretch(1);
+    rootLayout->addLayout(brandRow);
+    rootLayout->addStretch(1);
+
+    QWidget *startupPanel = new QWidget(this);
+    startupPanel->setObjectName("startupPanel");
+    QVBoxLayout *startupLayout = new QVBoxLayout(startupPanel);
+    startupLayout->setContentsMargins(28, 24, 28, 24);
+    startupLayout->setSpacing(12);
+
+    QVBoxLayout *headingText = new QVBoxLayout();
+    headingText->setContentsMargins(0, 0, 0, 0);
+    headingText->setSpacing(7);
+    QLabel *title = new QLabel("Project Startup", startupPanel);
+    title->setObjectName("startupTitle");
+    QFont titleFont("Segoe UI", 22, QFont::DemiBold);
     title->setFont(titleFont);
-    title->setStyleSheet("color: #0f172a; background: transparent; border: none;");
-
-    QLabel *subtitle = new QLabel("By Carlos Tapia", panel);
-    QFont subtitleFont("DengXian", 11, QFont::Normal);
+    QLabel *subtitle = new QLabel("Open an existing project or create a new one to get started.", startupPanel);
+    subtitle->setObjectName("startupSubtitle");
+    QFont subtitleFont("Segoe UI", 12, QFont::Normal);
     subtitle->setFont(subtitleFont);
-    subtitle->setStyleSheet("color: #475569; background: transparent; border: none;");
-
-    panelLayout->addWidget(title);
-    panelLayout->addWidget(subtitle);
-    panelLayout->addSpacing(16);
-
-    QLabel *openLabel = new QLabel("Open Project", panel);
-    openLabel->setStyleSheet("color: #1f2933; background: transparent; border: none;");
-    panelLayout->addWidget(openLabel);
+    headingText->addWidget(title);
+    headingText->addWidget(subtitle);
+    startupLayout->addLayout(headingText);
+    startupLayout->addSpacing(34);
 
     QHBoxLayout *openLayout = new QHBoxLayout();
-    m_openPathEdit = new QLineEdit(panel);
-    m_openPathEdit->setPlaceholderText("Select a project file (*.gvs)");
-    m_openPathEdit->setMinimumHeight(30);
-    m_openPathEdit->setStyleSheet(
-        "QLineEdit {"
-        " color: #1f2933;"
-        " background: #ffffff;"
-        " border: 1px solid #cfd7e3;"
-        " border-radius: 0px;"
-        " padding: 4px 6px; }"
-        "QLineEdit::placeholder { color: #94a3b8; }");
-    QPushButton *browseButton = new QPushButton("Browse", panel);
-    browseButton->setFixedWidth(90);
-    browseButton->setStyleSheet(
-        "QPushButton { background: #ffffff; color: #1f2933; border: 1px solid #cfd7e3; border-radius: 2px; padding: 4px 10px; }"
-        "QPushButton:hover { background: #f1f5f9; }");
+    openLayout->setSpacing(18);
+    m_openPathEdit = new QLineEdit(startupPanel);
+    m_openPathEdit->setObjectName("startupPathEdit");
+    m_openPathEdit->setPlaceholderText("Select a project file (.gvs)");
+    m_openPathEdit->setMinimumHeight(50);
+    QPushButton *browseButton = new QPushButton("...", startupPanel);
+    browseButton->setObjectName("startupBrowseButton");
+    browseButton->setFixedSize(54, 50);
     connect(browseButton, &QPushButton::clicked, this, &StartScreenDialog::OnBrowseOpen);
     openLayout->addWidget(m_openPathEdit, 1);
     openLayout->addWidget(browseButton);
-    panelLayout->addLayout(openLayout);
 
-    QHBoxLayout *actionRow = new QHBoxLayout();
-    QPushButton *openButton = new QPushButton("Open", panel);
-    QPushButton *newButton = new QPushButton("New Project", panel);
-    openButton->setFixedWidth(110);
-    newButton->setFixedWidth(140);
-    const char *buttonStyle =
-        "QPushButton { background: #ffffff; color: #1f2933; border: 1px solid #cfd7e3; border-radius: 2px; padding: 6px 12px; }"
-        "QPushButton:hover { background: #f1f5f9; }";
-    openButton->setStyleSheet(buttonStyle);
-    newButton->setStyleSheet(buttonStyle);
+    QPushButton *newButton = new QPushButton("Create New Project", startupPanel);
+    QPushButton *openButton = new QPushButton("Open", startupPanel);
+    QPushButton *cancelButton = new QPushButton("Cancel", startupPanel);
+    const QList<QPushButton *> actionButtons = {newButton, openButton, cancelButton};
+    for (QPushButton *button : actionButtons) {
+        button->setObjectName("startupActionButton");
+        button->setMinimumHeight(50);
+        button->setMinimumWidth(button == newButton ? 190 : 150);
+    }
     connect(openButton, &QPushButton::clicked, this, &StartScreenDialog::OnOpenProject);
     connect(newButton, &QPushButton::clicked, this, &StartScreenDialog::OnNewProject);
-    actionRow->addWidget(openButton);
-    actionRow->addWidget(newButton);
-    actionRow->addStretch(1);
-    panelLayout->addLayout(actionRow);
+    connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
+    openLayout->addWidget(newButton);
+    openLayout->addWidget(openButton);
+    openLayout->addWidget(cancelButton);
+    startupLayout->addLayout(openLayout);
 
-    panelLayout->addStretch(1);
-
-    rootLayout->addWidget(panel, 0, Qt::AlignLeft | Qt::AlignTop);
-    rootLayout->addStretch(1);
+    rootLayout->addWidget(startupPanel);
 }
 
 void StartScreenDialog::SetupBackground()
 {
-    const QString base = QCoreApplication::applicationDirPath();
-    QString bgPath = QDir(base).filePath("../assets/Backgrounds/StartingScreen.png");
-    if (!QFileInfo::exists(bgPath)) {
-        bgPath = QDir(base).filePath("../assets/backgrounds/StartingScreen.png");
-    }
-    if (!QFileInfo::exists(bgPath)) {
-        bgPath = QDir("assets/Backgrounds").filePath("StartingScreen.png");
-    }
-    if (!QFileInfo::exists(bgPath)) {
-        bgPath = QDir("assets/backgrounds").filePath("StartingScreen.png");
+    QString bgPath = FindAssetPath("assets/Backgrounds/StartingScreen2.png");
+    if (bgPath.isEmpty()) {
+        bgPath = FindAssetPath("assets/Backgrounds/StartingScreen.png");
     }
 
-    if (QFileInfo::exists(bgPath)) {
+    const QString commonStyle =
+        "QDialog#startScreen { background-color: #f8fafc; }"
+        "QDialog#startScreen QWidget { background: transparent; color: #17472d; }"
+        "QLabel#startupLogo { background: transparent; border: none; }"
+        "QWidget#startupBrandDivider { background: rgba(37, 70, 51, 95); border: none; }"
+        "QLabel#startupBrandName { color: #124a2b; background: transparent; border: none; }"
+        "QLabel#startupBrandSubtitle { color: #4f5a60; background: transparent; border: none; }"
+        "QWidget#startupPanel {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-radius: 0px;"
+        "  padding: 26px;"
+        "}"
+        "QLabel#startupTitle { color: #17472d; background: transparent; border: none; }"
+        "QLabel#startupSubtitle { color: #5d6470; background: transparent; border: none; }"
+        "QLineEdit#startupPathEdit {"
+        "  background: rgba(255, 255, 255, 248);"
+        "  color: #1f2933;"
+        "  border: 1px solid #6d987b;"
+        "  border-radius: 7px;"
+        "  padding: 0 18px;"
+        "  font-size: 15px;"
+        "}"
+        "QLineEdit#startupPathEdit:focus { border: 1px solid #245c37; background: #ffffff; }"
+        "QLineEdit#startupPathEdit::placeholder { color: #8b949e; }"
+        "QPushButton#startupBrowseButton, QPushButton#startupActionButton {"
+        "  background: #ffffff;"
+        "  color: #17472d;"
+        "  border: 1px solid #6d987b;"
+        "  border-radius: 7px;"
+        "  padding: 0 18px;"
+        "  font-size: 15px;"
+        "  font-weight: 600;"
+        "}"
+        "QPushButton#startupBrowseButton:hover, QPushButton#startupActionButton:hover {"
+        "  background: #e8f4eb;"
+        "  border-color: #245c37;"
+        "}"
+        "QPushButton#startupBrowseButton:pressed, QPushButton#startupActionButton:pressed {"
+        "  background: #d1e5d6;"
+        "}";
+
+    if (!bgPath.isEmpty()) {
         setStyleSheet(QString(
             "QDialog#startScreen {"
             " border-image: url(\"%1\") 0 0 0 0 stretch stretch;"
-            "}").arg(bgPath));
+            "}"
+            "%2").arg(bgPath, commonStyle));
     } else {
-        setStyleSheet("QDialog#startScreen { background-color: #f8fafc; }");
+        setStyleSheet(commonStyle);
     }
 }
 
