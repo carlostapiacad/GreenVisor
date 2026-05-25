@@ -47,10 +47,12 @@ add_executable(GreenVisor
   src/features/block_model/engine/BlockModelFieldUtils.cpp
   src/features/pit_optimization/engine/EconomicFormula.cpp
   src/features/pit_optimization/engine/MineFlowPitOptimizer.cpp
+  src/features/surfaces/engine/SurfaceTriangulationEngine.cpp
   src/features/block_model/dialogs/BlockModelDialogs.cpp
   src/features/general/dialogs/LayerDialogs.cpp
   src/features/pit_optimization/dialogs/EconomicVariablesDialog.cpp
   src/features/pit_optimization/dialogs/PitOptimizationReportDialog.cpp
+  src/features/surfaces/dialogs/TriangulateSurfaceDialog.cpp
   src/features/pit_optimization/widgets/EconomicTableWidgets.cpp
   src/gui/AppStyle.cpp
   src/gui/GuiUtils.cpp
@@ -64,12 +66,14 @@ add_executable(GreenVisor
   include/features/pit_optimization/models/EconomicModelDefinition.h
   include/features/pit_optimization/engine/EconomicFormula.h
   include/features/pit_optimization/engine/MineFlowPitOptimizer.h
+  include/features/surfaces/engine/SurfaceTriangulationEngine.h
   include/features/block_model/dialogs/BlockModelDialogs.h
   include/features/general/dialogs/LayerDialogs.h
   include/features/pit_optimization/dialogs/EconomicModelDialog.h
   include/features/pit_optimization/dialogs/EconomicVariablesDialog.h
   include/features/pit_optimization/dialogs/OpenPitOptimizationDialog.h
   include/features/pit_optimization/dialogs/PitOptimizationReportDialog.h
+  include/features/surfaces/dialogs/TriangulateSurfaceDialog.h
   include/features/pit_optimization/widgets/EconomicTableWidgets.h
   include/gui/MainWindow.h
   include/gui/AppStyle.h
@@ -80,7 +84,7 @@ add_executable(GreenVisor
   third_party/mineflow/mineflow.h
 )
 
-target_include_directories(GreenVisor PRIVATE include third_party/mineflow)
+target_include_directories(GreenVisor PRIVATE include third_party/mineflow third_party/CDT/CDT/include)
 
 target_link_libraries(GreenVisor PRIVATE
   Qt6::Core

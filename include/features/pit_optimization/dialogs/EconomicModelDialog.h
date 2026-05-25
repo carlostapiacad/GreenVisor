@@ -59,7 +59,7 @@ public:
           m_economicModelsByBlockModel(economicModelsByBlockModel),
           m_definitionsByKey(definitionsByKey)
     {
-        setWindowTitle(editMode ? "Modify Economic Model" : "Economic Model Import");
+        setWindowTitle(editMode ? "Modify Economic Model" : "Create Economic Model");
         setModal(true);
         resize(980, 660);
 
@@ -90,9 +90,7 @@ public:
         m_fieldsTable = new QTableWidget(definitionPage);
         m_fieldsTable->setColumnCount(3);
         m_fieldsTable->setHorizontalHeaderLabels({"Field Name", "Role", "Unit"});
-        m_fieldsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-        m_fieldsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-        m_fieldsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+        m_fieldsTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         QFont fieldHeaderFont = m_fieldsTable->horizontalHeader()->font();
         fieldHeaderFont.setBold(false);
         m_fieldsTable->horizontalHeader()->setFont(fieldHeaderFont);
@@ -674,10 +672,12 @@ private:
             QComboBox *roleCombo = new QComboBox(m_fieldsTable);
             roleCombo->addItems(roles);
             roleCombo->setCurrentText("None");
+            roleCombo->setMaxVisibleItems(8);
             m_fieldsTable->setCellWidget(row, 1, roleCombo);
 
             QComboBox *unitCombo = new QComboBox(m_fieldsTable);
             unitCombo->addItems({"Percentage", "Concentration (g/t)", "Mass (g)", "Mass (oz)", "Mass (lb)"});
+            unitCombo->setMaxVisibleItems(6);
             unitCombo->hide();
             QTableWidgetItem *unitItem = new QTableWidgetItem();
             unitItem->setFlags(unitItem->flags() & ~Qt::ItemIsEditable);

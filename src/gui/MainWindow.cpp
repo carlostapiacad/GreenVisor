@@ -12,13 +12,14 @@
 #include "features/pit_optimization/engine/EconomicFormula.h"
 #include "features/pit_optimization/engine/MineFlowPitOptimizer.h"
 #include "features/pit_optimization/widgets/EconomicTableWidgets.h"
+#include "features/surfaces/dialogs/TriangulateSurfaceDialog.h"
+#include "features/surfaces/engine/SurfaceTriangulationEngine.h"
 
 #include <QAbstractItemView>
 #include <QAbstractSpinBox>
 #include <QApplication>
 #include <QButtonGroup>
 #include <QComboBox>
-#include <QCoreApplication>
 #include <QCursor>
 #include <QDateEdit>
 #include <QCheckBox>
@@ -76,7 +77,6 @@
 #include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
-#include <QSvgRenderer>
 #include <QStyle>
 
 #include <algorithm>
@@ -84,11 +84,13 @@
 #include <atomic>
 #include <cmath>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 #include <QVTKOpenGLNativeWidget.h>
 
@@ -105,6 +107,7 @@
 #include <vtkExtractPolyDataGeometry.h>
 #include <vtkGenericOpenGLRenderWindow.h>
 #include <vtkGlyph3DMapper.h>
+#include <vtkIdList.h>
 #include <vtkInteractorStyle.h>
 #include <vtkInteractorStyleTrackballCamera.h>
 #include <vtkMath.h>
@@ -1010,6 +1013,41 @@ protected:
 private:
     std::vector<std::pair<double, double>> m_segments;
 };
+
+std::vector<surfaces::SurfacePolyline> ExtractSurfacePolylines(vtkPolyData *polyData)
+{
+    std::vector<surfaces::SurfacePolyline> polylines;
+    if (!polyData || polyData->GetNumberOfLines() == 0 || !polyData->GetLines()) {
+        return polylines;
+    }
+
+    vtkCellArray *lines = polyData->GetLines();
+    lines->InitTraversal();
+
+    vtkNew<vtkIdList> ids;
+    while (lines->GetNextCell(ids)) {
+        if (!ids || ids->GetNumberOfIds() < 2) {
+            continue;
+        }
+
+        surfaces::SurfacePolyline polyline;
+        polyline.points.reserve(static_cast<std::size_t>(ids->GetNumberOfIds()));
+        for (vtkIdType i = 0; i < ids->GetNumberOfIds(); ++i) {
+            double point[3] = {0.0, 0.0, 0.0};
+            polyData->GetPoint(ids->GetId(i), point);
+            if (!std::isfinite(point[0]) || !std::isfinite(point[1]) || !std::isfinite(point[2])) {
+                continue;
+            }
+            polyline.points.push_back({point[0], point[1], point[2]});
+        }
+
+        if (polyline.points.size() >= 2) {
+            polylines.push_back(std::move(polyline));
+        }
+    }
+
+    return polylines;
+}
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent)
@@ -1143,176 +1181,204 @@ void MainWindow::BuildViewport()
 
 void MainWindow::BuildRibbon()
 {
+    const QSize ribbonSmallButtonSize(118, 26);
+    const QSize ribbonLargeButtonSize(48, 70);
+    const int ribbonGroupSpacing = 2;
+
+    auto configureRibbonSmallButton = [ribbonSmallButtonSize](QToolButton *button) {
+        button->setProperty("ribbonButton", "small");
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        button->setIconSize(QSize(19, 19));
+        button->setFixedSize(ribbonSmallButtonSize);
+        button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    };
+
+    auto updateRibbonLargeButtonIcon = [](QToolButton *button) {
+        QLabel *iconLabel = button->findChild<QLabel *>("ribbonLargeButtonIcon");
+        if (!iconLabel || button->icon().isNull()) {
+            return;
+        }
+        const QPixmap pixmap = button->icon().pixmap(button->iconSize());
+        iconLabel->setPixmap(pixmap);
+        button->setIcon(QIcon());
+    };
+
+    auto configureRibbonLargeButton = [ribbonLargeButtonSize](QToolButton *button) {
+        const QString text = button->text();
+        button->setProperty("ribbonButton", "large");
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        button->setIconSize(QSize(36, 36));
+        button->setFixedSize(ribbonLargeButtonSize);
+        button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        button->setContentsMargins(0, 0, 0, 0);
+
+        QVBoxLayout *buttonLayout = new QVBoxLayout(button);
+        buttonLayout->setContentsMargins(1, 2, 1, 1);
+        buttonLayout->setSpacing(0);
+
+        QLabel *iconLabel = new QLabel(button);
+        iconLabel->setObjectName("ribbonLargeButtonIcon");
+        iconLabel->setFixedSize(46, 42);
+        iconLabel->setAlignment(Qt::AlignCenter);
+        iconLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+
+        QLabel *textLabel = new QLabel(text, button);
+        textLabel->setObjectName("ribbonLargeButtonText");
+        textLabel->setFixedSize(46, 25);
+        textLabel->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+        textLabel->setWordWrap(true);
+        textLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+
+        buttonLayout->addWidget(iconLabel);
+        buttonLayout->addWidget(textLabel);
+        button->setAccessibleName(text);
+        button->setText(QString());
+    };
+
+    auto setRibbonIcon = [updateRibbonLargeButtonIcon](QToolButton *button, const QString &relativePath) {
+        const QIcon icon = MakeTrimmedIcon(FindAssetPath(relativePath), button->iconSize());
+        if (!icon.isNull()) {
+            button->setIcon(icon);
+            updateRibbonLargeButtonIcon(button);
+        }
+    };
+
     QWidget *general = new QWidget(m_ribbon);
     general->setObjectName("ribbonPage");
     QGridLayout *generalLayout = new QGridLayout(general);
-    generalLayout->setContentsMargins(6, 5, 6, 5);
-    generalLayout->setHorizontalSpacing(12);
+    generalLayout->setContentsMargins(6, 4, 6, 4);
+    generalLayout->setHorizontalSpacing(8);
     generalLayout->setVerticalSpacing(0);
 
     QGroupBox *importGroup = new QGroupBox("Import", general);
-    QVBoxLayout *importLayout = new QVBoxLayout(importGroup);
-    importLayout->setContentsMargins(3, 5, 3, 3);
-    importLayout->setSpacing(4);
+    QGridLayout *importLayout = new QGridLayout(importGroup);
+    importLayout->setContentsMargins(10, 0, 10, 6);
+    importLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    importLayout->setVerticalSpacing(ribbonGroupSpacing);
 
     QToolButton *btnImportDxf = new QToolButton(importGroup);
     btnImportDxf->setText("DXF");
-    btnImportDxf->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    btnImportDxf->setIconSize(QSize(16, 16));
-    QString iconPath = "assets/Icons/dxf-file-format-document-extension-file-format-svgrepo-com.svg";
-    if (!QFile::exists(iconPath)) {
-        iconPath = "assets/ICON/dxf-file-format-document-extension-file-format-svgrepo-com.svg";
-    }
-    if (!QFile::exists(iconPath)) {
-        const QString base = QCoreApplication::applicationDirPath();
-        QString candidate = QDir(base).filePath("../assets/Icons/dxf-file-format-document-extension-file-format-svgrepo-com.svg");
-        if (QFile::exists(candidate)) {
-            iconPath = candidate;
-        } else {
-            iconPath = QDir(base).filePath("../assets/ICON/dxf-file-format-document-extension-file-format-svgrepo-com.svg");
-        }
-    }
-    QIcon dxfIcon;
-    if (QFile::exists(iconPath)) {
-        QSvgRenderer renderer(iconPath);
-        if (renderer.isValid()) {
-            QPixmap pix(btnImportDxf->iconSize());
-            pix.fill(Qt::transparent);
-            {
-                QPainter p(&pix);
-                renderer.render(&p);
-            }
-            QPixmap tinted = pix;
-            {
-                QPainter tint(&tinted);
-                tint.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                tint.fillRect(tinted.rect(), QColor(220, 220, 220));
-            }
-            dxfIcon = QIcon(tinted);
-        }
-    }
-    if (dxfIcon.isNull()) {
-        dxfIcon = QIcon(iconPath);
-    }
-    btnImportDxf->setIcon(dxfIcon);
+    configureRibbonLargeButton(btnImportDxf);
+    setRibbonIcon(btnImportDxf, "assets/Icons/ToolBar/Import_DXF.png");
     connect(btnImportDxf, &QToolButton::clicked, this, &MainWindow::LoadDxfFile);
 
-    const int gridUnit = std::max(1, btnImportDxf->sizeHint().height());
-    importGroup->setMinimumWidth(gridUnit * 5);
-    btnImportDxf->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    btnImportDxf->setMinimumWidth(importGroup->minimumWidth() - (gridUnit / 4));
-
-    importLayout->addWidget(btnImportDxf, 0, Qt::AlignLeft);
+    importLayout->addWidget(btnImportDxf, 0, 0, 3, 1);
 
     QToolButton *btnImportBlockModel = new QToolButton(importGroup);
-    btnImportBlockModel->setText("Block Model");
-    btnImportBlockModel->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    btnImportBlockModel->setIconSize(QSize(16, 16));
-    btnImportBlockModel->setIcon(style()->standardIcon(QStyle::SP_DriveHDIcon));
-    btnImportBlockModel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    btnImportBlockModel->setMinimumWidth(importGroup->minimumWidth() - (gridUnit / 4));
+    btnImportBlockModel->setText("Block\nModel");
+    configureRibbonLargeButton(btnImportBlockModel);
+    setRibbonIcon(btnImportBlockModel, "assets/Icons/ToolBar/Import_BlockModel.png");
     connect(btnImportBlockModel, &QToolButton::clicked, this, &MainWindow::LoadBlockModelFile);
-    importLayout->addWidget(btnImportBlockModel, 0, Qt::AlignLeft);
+    importLayout->addWidget(btnImportBlockModel, 0, 1, 3, 1);
 
     QToolButton *btnImportObj = new QToolButton(importGroup);
     btnImportObj->setText("OBJ");
-    btnImportObj->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    btnImportObj->setIconSize(QSize(16, 16));
-    btnImportObj->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
-    btnImportObj->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    btnImportObj->setMinimumWidth(importGroup->minimumWidth() - (gridUnit / 4));
+    configureRibbonLargeButton(btnImportObj);
+    setRibbonIcon(btnImportObj, "assets/Icons/ToolBar/Import_OBJ.png");
     connect(btnImportObj, &QToolButton::clicked, this, &MainWindow::LoadObjFile);
-    importLayout->addWidget(btnImportObj, 0, Qt::AlignLeft);
-    importLayout->addStretch(1);
+    importLayout->addWidget(btnImportObj, 0, 2, 3, 1);
 
     generalLayout->addWidget(importGroup, 0, 0, Qt::AlignTop);
 
     QGroupBox *dateGroup = new QGroupBox("Date Control", general);
-    generalLayout->setContentsMargins(gridUnit / 6, gridUnit / 6, gridUnit / 6, gridUnit / 6);
-    generalLayout->setHorizontalSpacing(gridUnit / 3);
-
     QGridLayout *dateLayout = new QGridLayout(dateGroup);
-    dateLayout->setContentsMargins(gridUnit / 6, gridUnit / 6, gridUnit / 6, gridUnit / 6);
-    dateLayout->setHorizontalSpacing(gridUnit / 6);
-    dateLayout->setVerticalSpacing(6);
-    dateLayout->setRowMinimumHeight(0, gridUnit / 4);
+    dateLayout->setContentsMargins(10, 0, 10, 6);
+    dateLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    dateLayout->setVerticalSpacing(ribbonGroupSpacing);
 
     QLabel *dateLabel = new QLabel("Layer Date", dateGroup);
     dateLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_layerDateCombo = new QComboBox(dateGroup);
     m_layerDateCombo->setEnabled(false);
-    m_layerDateCombo->setMinimumWidth(140);
+    m_layerDateCombo->setFixedSize(ribbonSmallButtonSize);
     connect(m_layerDateCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
         this, &MainWindow::OnLayerDateChanged);
 
     QPushButton *addDateButton = new QPushButton("Add Date", dateGroup);
+    addDateButton->setFixedSize(ribbonSmallButtonSize);
     connect(addDateButton, &QPushButton::clicked, this, &MainWindow::OnAddDateClicked);
 
-    dateLayout->addWidget(dateLabel, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    dateLayout->addWidget(m_layerDateCombo, 2, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    dateLayout->addWidget(addDateButton, 3, 0, Qt::AlignLeft | Qt::AlignVCenter);
-    dateLayout->setRowMinimumHeight(1, dateLabel->sizeHint().height());
-    dateLayout->setRowMinimumHeight(2, m_layerDateCombo->sizeHint().height());
-    dateLayout->setRowMinimumHeight(3, addDateButton->sizeHint().height());
+    dateLayout->addWidget(dateLabel, 0, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    dateLayout->addWidget(m_layerDateCombo, 1, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    dateLayout->addWidget(addDateButton, 2, 0, Qt::AlignLeft | Qt::AlignVCenter);
 
     generalLayout->addWidget(dateGroup, 0, 1, Qt::AlignTop);
 
     QGroupBox *viewGroup = new QGroupBox("View", general);
-    QVBoxLayout *viewLayout = new QVBoxLayout(viewGroup);
-    viewLayout->setContentsMargins(6, 6, 6, 6);
-    QHBoxLayout *viewButtons = new QHBoxLayout();
+    QGridLayout *viewLayout = new QGridLayout(viewGroup);
+    viewLayout->setContentsMargins(10, 0, 10, 6);
+    viewLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    viewLayout->setVerticalSpacing(ribbonGroupSpacing);
     QToolButton *view3DButton = new QToolButton(viewGroup);
     view3DButton->setText("3D");
+    configureRibbonSmallButton(view3DButton);
     view3DButton->setCheckable(true);
     view3DButton->setChecked(true);
-    view3DButton->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
-    view3DButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    setRibbonIcon(view3DButton, "assets/Icons/ToolBar/View_3D.png");
     QToolButton *view2DButton = new QToolButton(viewGroup);
     view2DButton->setText("2D");
+    configureRibbonSmallButton(view2DButton);
     view2DButton->setCheckable(true);
-    view2DButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
-    view2DButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    setRibbonIcon(view2DButton, "assets/Icons/ToolBar/View_2D.png");
     QButtonGroup *viewModeGroup = new QButtonGroup(viewGroup);
     viewModeGroup->setExclusive(true);
     viewModeGroup->addButton(view3DButton);
     viewModeGroup->addButton(view2DButton);
     connect(view3DButton, &QToolButton::clicked, this, &MainWindow::SetViewMode3D);
     connect(view2DButton, &QToolButton::clicked, this, &MainWindow::SetViewMode2D);
-    viewButtons->addWidget(view3DButton);
-    viewButtons->addWidget(view2DButton);
     QToolButton *twoPointsButton = new QToolButton(viewGroup);
     twoPointsButton->setText("2 points");
-    twoPointsButton->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
-    twoPointsButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    configureRibbonSmallButton(twoPointsButton);
+    setRibbonIcon(twoPointsButton, "assets/Icons/ToolBar/Section_2Points.png");
     connect(twoPointsButton, &QToolButton::clicked, this, &MainWindow::OnPickBlockSectionTwoPoints);
-    viewButtons->addWidget(twoPointsButton);
-    viewLayout->addLayout(viewButtons);
+    viewLayout->addWidget(view3DButton, 0, 0);
+    viewLayout->addWidget(view2DButton, 1, 0);
+    viewLayout->addWidget(twoPointsButton, 2, 0);
     generalLayout->addWidget(viewGroup, 0, 2, Qt::AlignTop);
 
     generalLayout->setColumnStretch(3, 1);
 
     m_ribbon->addTab(general, "General");
 
+    QWidget *surfaces = new QWidget(m_ribbon);
+    surfaces->setObjectName("ribbonPage");
+    QHBoxLayout *surfacesLayout = new QHBoxLayout(surfaces);
+    surfacesLayout->setContentsMargins(6, 4, 6, 4);
+    surfacesLayout->setSpacing(8);
+
+    QGroupBox *surfacesCreateGroup = new QGroupBox("Create", surfaces);
+    QGridLayout *surfacesCreateLayout = new QGridLayout(surfacesCreateGroup);
+    surfacesCreateLayout->setContentsMargins(10, 0, 10, 6);
+    surfacesCreateLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    surfacesCreateLayout->setVerticalSpacing(ribbonGroupSpacing);
+
+    QToolButton *triangulateButton = new QToolButton(surfacesCreateGroup);
+    triangulateButton->setText("Triangulate");
+    configureRibbonLargeButton(triangulateButton);
+    setRibbonIcon(triangulateButton, "assets/Icons/ToolBar/Triangulate.png");
+    connect(triangulateButton, &QToolButton::clicked, this, &MainWindow::OnTriangulateSurface);
+    surfacesCreateLayout->addWidget(triangulateButton, 0, 0, 3, 1);
+
+    surfacesLayout->addWidget(surfacesCreateGroup, 0, Qt::AlignTop);
+    surfacesLayout->addStretch(1);
+
+    m_ribbon->addTab(surfaces, "Surfaces");
+
     QWidget *routes = new QWidget(m_ribbon);
     routes->setObjectName("ribbonPage");
     QHBoxLayout *routesLayout = new QHBoxLayout(routes);
-    routesLayout->setContentsMargins(6, 5, 6, 5);
-    routesLayout->setSpacing(12);
+    routesLayout->setContentsMargins(6, 4, 6, 4);
+    routesLayout->setSpacing(8);
 
     QGroupBox *routesGroup = new QGroupBox("Routes", routes);
-    QVBoxLayout *routesGroupLayout = new QVBoxLayout(routesGroup);
-    routesGroupLayout->setContentsMargins(8, 8, 8, 8);
-    routesGroupLayout->setSpacing(6);
+    QGridLayout *routesGroupLayout = new QGridLayout(routesGroup);
+    routesGroupLayout->setContentsMargins(10, 0, 10, 6);
+    routesGroupLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    routesGroupLayout->setVerticalSpacing(ribbonGroupSpacing);
 
     QToolButton *routeSetupButton = new QToolButton(routesGroup);
     routeSetupButton->setText("Setup");
-    routeSetupButton->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    routeSetupButton->setIconSize(QSize(36, 36));
-    routeSetupButton->setMinimumSize(QSize(72, 70));
-    routeSetupButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    routeSetupButton->setStyleSheet(
-        "QToolButton { border: 1px solid #5a5a5a; border-radius: 4px; padding: 4px; }"
-        "QToolButton:hover { border: 1px solid #7a7a7a; background: #3a3a3a; }");
+    configureRibbonLargeButton(routeSetupButton);
 
     QString routeIconPath = FindAssetPath("assets/Icons/routes_setup.png");
     if (routeIconPath.isEmpty()) {
@@ -1321,42 +1387,25 @@ void MainWindow::BuildRibbon()
     const QIcon routeIcon = MakeTrimmedIcon(routeIconPath, routeSetupButton->iconSize());
     if (!routeIcon.isNull()) {
         routeSetupButton->setIcon(routeIcon);
+        updateRibbonLargeButtonIcon(routeSetupButton);
     }
     connect(routeSetupButton, &QToolButton::clicked, this, &MainWindow::OnOpenRouteSetup);
 
     QToolButton *routeCalculateButton = new QToolButton(routesGroup);
     routeCalculateButton->setText("Calculate");
-    routeCalculateButton->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    routeCalculateButton->setIconSize(QSize(28, 28));
-    routeCalculateButton->setMinimumSize(QSize(90, 70));
-    routeCalculateButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    routeCalculateButton->setStyleSheet(
-        "QToolButton { border: 1px solid #5a5a5a; border-radius: 4px; padding: 4px; }"
-        "QToolButton:hover { border: 1px solid #7a7a7a; background: #3a3a3a; }");
+    configureRibbonLargeButton(routeCalculateButton);
     connect(routeCalculateButton, &QToolButton::clicked, this, &MainWindow::OnCalculateRoutes);
 
     QToolButton *routeVisualizeButton = new QToolButton(routesGroup);
     routeVisualizeButton->setText("Visualize");
-    routeVisualizeButton->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    configureRibbonLargeButton(routeVisualizeButton);
     routeVisualizeButton->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
-    routeVisualizeButton->setIconSize(QSize(24, 24));
-    routeVisualizeButton->setMinimumSize(QSize(90, 70));
-    routeVisualizeButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    routeVisualizeButton->setStyleSheet(
-        "QToolButton { border: 1px solid #5a5a5a; border-radius: 4px; padding: 4px; }"
-        "QToolButton:hover { border: 1px solid #7a7a7a; background: #3a3a3a; }");
+    updateRibbonLargeButtonIcon(routeVisualizeButton);
     connect(routeVisualizeButton, &QToolButton::clicked, this, &MainWindow::OnVisualizeRoutes);
 
-    QHBoxLayout *routeButtonsLayout = new QHBoxLayout();
-    routeButtonsLayout->setContentsMargins(0, 0, 0, 0);
-    routeButtonsLayout->setSpacing(8);
-    routeButtonsLayout->addWidget(routeSetupButton);
-    routeButtonsLayout->addWidget(routeCalculateButton);
-    routeButtonsLayout->addWidget(routeVisualizeButton);
-    routeButtonsLayout->addStretch(1);
-
-    routesGroupLayout->addLayout(routeButtonsLayout);
-    routesGroupLayout->addStretch(1);
+    routesGroupLayout->addWidget(routeSetupButton, 0, 0, 3, 1);
+    routesGroupLayout->addWidget(routeCalculateButton, 0, 1, 3, 1);
+    routesGroupLayout->addWidget(routeVisualizeButton, 0, 2, 3, 1);
 
     routesLayout->addWidget(routesGroup, 0, Qt::AlignTop);
     routesLayout->addStretch(1);
@@ -1366,51 +1415,52 @@ void MainWindow::BuildRibbon()
     QWidget *opOptimization = new QWidget(m_ribbon);
     opOptimization->setObjectName("ribbonPage");
     QHBoxLayout *opLayout = new QHBoxLayout(opOptimization);
-    opLayout->setContentsMargins(6, 5, 6, 5);
-    opLayout->setSpacing(12);
+    opLayout->setContentsMargins(6, 4, 6, 4);
+    opLayout->setSpacing(8);
 
     QGroupBox *economicGroup = new QGroupBox("Economic Model", opOptimization);
-    QHBoxLayout *economicLayout = new QHBoxLayout(economicGroup);
-    economicLayout->setContentsMargins(8, 8, 8, 8);
-    economicLayout->setSpacing(8);
+    QGridLayout *economicLayout = new QGridLayout(economicGroup);
+    economicLayout->setContentsMargins(10, 0, 10, 6);
+    economicLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    economicLayout->setVerticalSpacing(ribbonGroupSpacing);
 
-    auto makeEconomicButton = [this, economicGroup](const QString &text, QStyle::StandardPixmap icon) {
+    auto makeEconomicButton = [economicGroup, configureRibbonLargeButton, setRibbonIcon](const QString &text, const QString &iconPath) {
         QToolButton *button = new QToolButton(economicGroup);
         button->setText(text);
-        button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-        button->setIcon(style()->standardIcon(icon));
-        button->setIconSize(QSize(24, 24));
-        button->setMinimumSize(QSize(82, 70));
-        button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        configureRibbonLargeButton(button);
+        setRibbonIcon(button, iconPath);
         return button;
     };
 
-    QToolButton *createEconomicButton = makeEconomicButton("Create", QStyle::SP_FileIcon);
-    QToolButton *modifyEconomicButton = makeEconomicButton("Modify", QStyle::SP_FileDialogDetailedView);
+    QToolButton *createEconomicButton = makeEconomicButton("Create", "assets/Icons/ToolBar/Create Economic Model.png");
+    QToolButton *modifyEconomicButton = makeEconomicButton("Modify", "assets/Icons/ToolBar/Modify Economic Model.png");
     connect(createEconomicButton, &QToolButton::clicked, this, &MainWindow::OnCreateEconomicModel);
     connect(modifyEconomicButton, &QToolButton::clicked, this, &MainWindow::OnModifyEconomicModel);
 
-    economicLayout->addWidget(createEconomicButton);
-    economicLayout->addWidget(modifyEconomicButton);
-    economicLayout->addStretch(1);
+    economicLayout->addWidget(createEconomicButton, 0, 0, 3, 1);
+    economicLayout->addWidget(modifyEconomicButton, 0, 1, 3, 1);
 
     opLayout->addWidget(economicGroup, 0, Qt::AlignTop);
 
     QGroupBox *pitGroup = new QGroupBox("Pit Optimization", opOptimization);
-    QHBoxLayout *pitLayout = new QHBoxLayout(pitGroup);
-    pitLayout->setContentsMargins(8, 8, 8, 8);
-    pitLayout->setSpacing(8);
+    QGridLayout *pitLayout = new QGridLayout(pitGroup);
+    pitLayout->setContentsMargins(10, 0, 10, 6);
+    pitLayout->setHorizontalSpacing(ribbonGroupSpacing);
+    pitLayout->setVerticalSpacing(ribbonGroupSpacing);
+
+    QToolButton *addTopographyButton = new QToolButton(pitGroup);
+    addTopographyButton->setText("Add\nTopo");
+    configureRibbonLargeButton(addTopographyButton);
+    setRibbonIcon(addTopographyButton, "assets/Icons/ToolBar/Add Topography.png");
+    connect(addTopographyButton, &QToolButton::clicked, this, &MainWindow::LoadObjFile);
+    pitLayout->addWidget(addTopographyButton, 0, 0, 3, 1);
 
     QToolButton *optimizationSettingsButton = new QToolButton(pitGroup);
-    optimizationSettingsButton->setText("Optimization Settings");
-    optimizationSettingsButton->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    optimizationSettingsButton->setIcon(style()->standardIcon(QStyle::SP_FileDialogInfoView));
-    optimizationSettingsButton->setIconSize(QSize(24, 24));
-    optimizationSettingsButton->setMinimumSize(QSize(132, 70));
-    optimizationSettingsButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    optimizationSettingsButton->setText("Set up");
+    configureRibbonLargeButton(optimizationSettingsButton);
+    setRibbonIcon(optimizationSettingsButton, "assets/Icons/ToolBar/Optimization Setup.png");
     connect(optimizationSettingsButton, &QToolButton::clicked, this, &MainWindow::OnOptimizationSettings);
-    pitLayout->addWidget(optimizationSettingsButton);
-    pitLayout->addStretch(1);
+    pitLayout->addWidget(optimizationSettingsButton, 0, 1, 3, 1);
 
     opLayout->addWidget(pitGroup, 0, Qt::AlignTop);
     opLayout->addStretch(1);
@@ -1882,6 +1932,210 @@ void MainWindow::LoadObjFile()
 
     if (m_consoleLog) {
         m_consoleLog->append(QString(">> OBJ loaded: %1").arg(path));
+    }
+}
+
+bool MainWindow::HasSelectedSurfaceLines() const
+{
+    for (const SceneItem &item : m_sceneItems) {
+        if (!item.highlightActor) {
+            continue;
+        }
+        vtkPolyDataMapper *mapper = vtkPolyDataMapper::SafeDownCast(item.highlightActor->GetMapper());
+        vtkPolyData *poly = mapper ? mapper->GetInput() : nullptr;
+        if (poly && poly->GetNumberOfLines() > 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::OnTriangulateSurface()
+{
+    if (HasSelectedSurfaceLines()) {
+        RunSurfaceTriangulationFromSelection();
+        return;
+    }
+
+    m_surfaceTriangulationSelectionActive = true;
+    if (m_consoleLog) {
+        m_consoleLog->append(">> Select line geometry for triangulation, then right-click in the viewport to confirm.");
+    }
+}
+
+void MainWindow::RunSurfaceTriangulationFromSelection()
+{
+    m_surfaceTriangulationSelectionActive = false;
+
+    if (!m_layerModel || !m_renderer) {
+        QMessageBox::warning(this, "Triangulate Surface", "No active project is available.");
+        return;
+    }
+
+    std::vector<surfaces::SurfacePolyline> polylines;
+    for (const SceneItem &item : m_sceneItems) {
+        if (!item.highlightActor) {
+            continue;
+        }
+        vtkPolyDataMapper *mapper = vtkPolyDataMapper::SafeDownCast(item.highlightActor->GetMapper());
+        vtkPolyData *selected = mapper ? mapper->GetInput() : nullptr;
+        std::vector<surfaces::SurfacePolyline> itemLines = ExtractSurfacePolylines(selected);
+        polylines.insert(
+            polylines.end(),
+            std::make_move_iterator(itemLines.begin()),
+            std::make_move_iterator(itemLines.end()));
+    }
+
+    if (polylines.empty()) {
+        QMessageBox::information(this, "Triangulate Surface", "Select one or more line entities before triangulating.");
+        return;
+    }
+
+    QStringList existingLayers;
+    for (LayerNode *node : m_layerModel->geometryLayers()) {
+        if (node) {
+            existingLayers << node->name();
+        }
+    }
+    existingLayers.sort(Qt::CaseInsensitive);
+
+    TriangulateSurfaceDialog dialog(existingLayers, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const TriangulateSurfaceDialog::Selection selection = dialog.selection();
+    QString layerName = selection.createNew
+        ? UniqueChildName(m_layerModel->root(), selection.targetLayer)
+        : selection.targetLayer;
+    const qint64 key = LayerModel::DateKey(selection.date);
+    if (layerName.isEmpty() || key == 0) {
+        return;
+    }
+
+    LayerNode *layerNode = selection.createNew
+        ? nullptr
+        : m_layerModel->findGeometryLayerByName(layerName);
+    if (layerNode && layerNode->history().contains(key)) {
+        const QMessageBox::StandardButton replace = QMessageBox::question(
+            this,
+            "Triangulate Surface",
+            QString("Layer \"%1\" already has date %2. Replace that version?")
+                .arg(layerName, selection.date.toString("yyyy-MM-dd")),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (replace != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    QProgressDialog progress("Triangulating surface...", QString(), 0, 0, this);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setCancelButton(nullptr);
+    progress.setWindowFlags(progress.windowFlags() & ~Qt::WindowCloseButtonHint);
+
+    surfaces::TriangulationResult triangulation;
+    QString triangulationError;
+    surfaces::TriangulationOptions options;
+    options.optimize = true;
+
+    QThread *worker = QThread::create([&triangulation, &triangulationError, &polylines, options]() {
+        try {
+            triangulation = surfaces::TriangulatePolylines(polylines, options);
+        } catch (const std::exception &ex) {
+            triangulationError = QString::fromLocal8Bit(ex.what());
+        }
+    });
+    connect(worker, &QThread::finished, &progress, &QProgressDialog::close, Qt::QueuedConnection);
+    connect(worker, &QThread::finished, worker, &QObject::deleteLater, Qt::QueuedConnection);
+
+    worker->start();
+    progress.exec();
+    worker->wait();
+
+    if (!triangulationError.isEmpty()) {
+        QMessageBox::warning(this, "Triangulate Surface", QString("Triangulation failed: %1").arg(triangulationError));
+        return;
+    }
+
+    if (!layerNode) {
+        layerNode = m_layerModel->addGeometryLayer(layerName, m_layerModel->root());
+    }
+    if (!layerNode) {
+        QMessageBox::warning(this, "Triangulate Surface", "Unable to create the target layer.");
+        return;
+    }
+
+    LayerRenderData &render = m_layerRenders[layerName];
+    if (!render.actor) {
+        vtkNew<vtkPolyDataMapper> mapper;
+        vtkNew<vtkActor> actor;
+        actor->SetMapper(mapper);
+        actor->GetProperty()->SetColor(0.58, 0.74, 0.64);
+        actor->GetProperty()->SetOpacity(0.88);
+        actor->GetProperty()->SetRepresentationToSurface();
+        actor->GetProperty()->EdgeVisibilityOn();
+        actor->GetProperty()->SetEdgeColor(0.25, 0.34, 0.29);
+        actor->GetProperty()->SetLineWidth(0.8);
+        m_renderer->AddActor(actor);
+
+        render.mapper = mapper;
+        render.actor = actor;
+
+        SceneItem item;
+        item.actor = actor;
+        item.data = triangulation.mesh;
+        item.highlightActor = nullptr;
+        item.layerName = layerName;
+        m_sceneItems.push_back(item);
+        m_actorIndex[actor] = m_sceneItems.size() - 1;
+    } else {
+        render.actor->GetProperty()->SetRepresentationToSurface();
+        render.actor->GetProperty()->EdgeVisibilityOn();
+    }
+
+    render.versions.insert(key, triangulation.mesh);
+    m_layerModel->addVersion(layerNode, key);
+    m_layerModel->setActiveDate(layerNode, key);
+    OnLayerVisibilityChanged(layerNode, layerNode->isVisible());
+    UpdateLayerRender(layerName, key);
+
+    ClearSelection();
+
+    if (m_layersView) {
+        const QModelIndex idx = m_layerModel->indexFromNode(layerNode, 0);
+        if (idx.isValid()) {
+            const QModelIndex parentIdx = idx.parent();
+            if (parentIdx.isValid()) {
+                m_layersView->expand(parentIdx);
+            }
+            m_layersView->setCurrentIndex(idx);
+            m_layersView->scrollTo(idx);
+            OnLayerSelectionChanged(idx, QModelIndex());
+        }
+    }
+
+    if (!m_hasScene) {
+        m_renderer->ResetCamera();
+        if (vtkCamera *camera = m_renderer->GetActiveCamera()) {
+            camera->ParallelProjectionOn();
+        }
+        m_hasScene = true;
+    } else {
+        m_renderer->ResetCameraClippingRange();
+    }
+    if (m_renderWindow) {
+        m_renderWindow->Render();
+    }
+
+    if (m_consoleLog) {
+        m_consoleLog->append(QString(">> Surface triangulated: %1 line(s), %2 input points optimized to %3 points, %4 triangles -> %5")
+            .arg(triangulation.inputPolylineCount)
+            .arg(triangulation.inputPointCount)
+            .arg(triangulation.simplifiedPointCount)
+            .arg(triangulation.triangleCount)
+            .arg(layerName));
     }
 }
 
@@ -2826,6 +3080,7 @@ void MainWindow::ResetProjectState()
     m_currentLayerIndex = QModelIndex();
     m_hasScene = false;
     m_lineWidthReference = -1.0;
+    m_surfaceTriangulationSelectionActive = false;
     StopRouteVisualization(true);
 }
 
@@ -7321,6 +7576,10 @@ bool MainWindow::eventFilter(QObject *obj, QEvent *event)
         auto *mouseEvent = static_cast<QMouseEvent *>(event);
         if (m_blockSectionPickActive && mouseEvent->button() == Qt::LeftButton) {
             return HandleBlockSectionPick(mouseEvent->pos());
+        }
+        if (m_surfaceTriangulationSelectionActive && mouseEvent->button() == Qt::RightButton) {
+            RunSurfaceTriangulationFromSelection();
+            return true;
         }
         if (mouseEvent->button() == Qt::LeftButton &&
             (mouseEvent->modifiers() & Qt::ShiftModifier) == 0) {

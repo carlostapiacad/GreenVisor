@@ -87,6 +87,9 @@ private:
     void OnModifyEconomicModel();
     void OnDeleteEconomicModel();
     void OnOptimizationSettings();
+    void OnTriangulateSurface();
+    void RunSurfaceTriangulationFromSelection();
+    bool HasSelectedSurfaceLines() const;
     LayerNode *FindBlockModelAncestor(LayerNode *node) const;
     LayerNode *FindLegendOwnerBlockModel(LayerNode *node) const;
     LayerNode *FindEconomicModelsFolder(LayerNode *blockModelNode) const;
@@ -240,6 +243,7 @@ private:
     QRubberBand *m_selectionBand = nullptr;
     bool m_selecting = false;
     bool m_crossingSelect = false;
+    bool m_surfaceTriangulationSelectionActive = false;
     bool m_blockSectionPickActive = false;
     QString m_blockSectionLayerName;
     std::vector<std::array<double, 3>> m_blockSectionPoints;
